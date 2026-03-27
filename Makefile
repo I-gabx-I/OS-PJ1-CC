@@ -16,7 +16,7 @@ ifeq ($(TARGET), QEMU)
 else
     HW_DIR = hal/beagle
     CFLAGS = -mcpu=cortex-a8 -marm -Wall -O0 -ffreestanding -nostdlib -I./lib -I./hal -I./os
-	OS_LD = hal/beagle/beagle.ld
+	OS_LD = os/os.ld
 	P1_LD = P1/p1.ld
     P2_LD = P2/p2.ld
 endif

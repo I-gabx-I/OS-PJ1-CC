@@ -25,4 +25,7 @@ SECTIONS
 
     /* El stack del OS empieza en esta dirección (crece hacia abajo) */
     _os_stack_top = 0x82010000 + 0x2000; /* 0x2000 son los 8KB */
+
+    /* Stack del modo IRQ - separado porque ARM tiene SP/LR bancados por modo */
+    _irq_stack_top = 0x82010000;
 }

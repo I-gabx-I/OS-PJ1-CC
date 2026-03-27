@@ -52,16 +52,59 @@ hang:
 @ -------------------------------------------------------
 irq_handler:
     @ 1. Corregir LR y guardar contexto inicial en el stack
-    sub lr, lr, #4
-    stmfd sp!, {r0-r12, lr}   @ [sp] = r0...r12, PC
+    @ -------------------------------------------------------
+    @ IRQ Handler (El verdadero Context Switch)
+    @ -------------------------------------------------------
+    irq_handler:
+        @ 1. Corregir el PC interrumpido (instruccion exacta)
+        sub lr, lr, #4
 
-    @ 2. Preparar argumentos para timer_irq_handler (el puntero al frame)
-    @ Pasamos el Stack Pointer (que apunta al frame guardado) a r0
-    mov r0, sp
+        @ 2. Guardar R0-R12 y el PC en nuestro stack de IRQ
+        stmfd sp!, {r0-r12, lr}
 
-    @ 3. Llamar a la funcion en C (Esto hara el PRINT y el schedule)
-    bl timer_irq_handler
+        @ 3. Guardar el SPSR (estado del proceso)
+        mrs r0, spsr
+        stmfd sp!, {r0}
 
-    @ 4. La funcion en C modifico nuestro stack con los datos del nuevo proceso.
-    @ Restaurar todos los registros (r0-r12 y PC) y el CPSR de golpe.
-    ldmfd sp!, {r0-r12, pc}^
+        @ 4. ZONA CRITICA: Cambiar a modo SVC desactivando interrupciones (I=1 -> 0x80)
+        @ Esto cumple con aislar el Context Switch para evitar reentrancia.
+        mrs r1, cpsr
+        bic r0, r1, #0x1F
+        orr r0, r0, #0x93      @ 0x13 (SVC) | 0x80 (Desactiva IRQ)
+        msr cpsr_c, r0
+
+        @ 5. Tomar prestados el SP y LR del proceso (que vive en SVC)
+        mov r2, sp
+        mov r3, lr
+
+        @ 6. Volver al modo IRQ
+        msr cpsr_c, r1
+
+        @ 7. Guardar el SP y LR en nuestro stack. 
+        @ ¡La "caja" (frame) de 17 posiciones ya esta lista para C!
+        stmfd sp!, {r2, r3}
+
+        @ 8. Llamar al jefe en C pasandole el stack (r0 = sp)
+        mov r0, sp
+        bl timer_irq_handler
+
+        @ --- REGRESO DE C (La caja trae los datos del nuevo proceso) ---
+    
+        @ 9. Sacar el SP y LR del nuevo proceso
+        ldmfd sp!, {r2, r3}
+
+        @ 10. ZONA CRITICA: Cambiar a SVC (sin interrupciones) para inyectarselos
+        mrs r1, cpsr
+        bic r0, r1, #0x1F
+        orr r0, r0, #0x93
+        msr cpsr_c, r0
+        mov sp, r2
+        mov lr, r3
+        msr cpsr_c, r1
+
+        @ 11. Restaurar el SPSR del nuevo proceso
+        ldmfd sp!, {r0}
+        msr spsr_cxsf, r0
+
+        @ 12. Restaurar R0-R12 y saltar al nuevo PC (El ^ restaura el modo automatico)
+        ldmfd sp!, {r0-r12, pc}^

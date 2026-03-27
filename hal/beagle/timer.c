@@ -9,10 +9,11 @@
 #define TIMER2_TCRR (*((volatile unsigned int *)(TIMER2_BASE + 0x3C))) 
 
 #define INTC_BASE 0x48200000
-#define INTC_MIR_CLEAR2 (*((volatile unsigned int *)(INTC_BASE + 0xA8)))
+#define INTC_MIR_CLEAR2 (*((volatile unsigned int *)(INTC_BASE + 0xC8)))
+#define INTC_CONTROL (*((volatile unsigned int *)(INTC_BASE + 0x48)))
 
 // quantum
-#define QUANTUM_MS 1000            // Tiempo en milisegundos
+#define QUANTUM_MS 1000          // Tiempo en milisegundos
 #define CLOCK_FREQ 24000000        // 24 MHz
 // Formula: El DMTimer2 cuenta hacia arriba, restamos del tope
 #define CALC_TICKS(ms) (0xFFFFFFFF - ((ms * (CLOCK_FREQ / 1000))))

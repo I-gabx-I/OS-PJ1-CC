@@ -7,8 +7,7 @@
 #include "../hal/uart.h"
 
 void timer_irq_handler(unsigned int *frame) {
-    clear_timer_interrupt();
-    PRINT("Timer tick\n");
+    clear_timer_interrupt(); // Apagamos el hardware para que no siga sonando
 
     static int os_started = 0;
 
@@ -16,62 +15,25 @@ void timer_irq_handler(unsigned int *frame) {
     if (os_started == 1) {
         pcb_t *cur = &process_table[current_process];
 
-        // Guardar r0-r12 y PC desde el frame
-        for (int i = 0; i < 13; i++) cur->r[i] = frame[i];
-        cur->pc = frame[13];
-
-        // Leer SVC_SP y SVC_LR del proceso interrumpido
-        unsigned int svc_sp, svc_lr;
-        asm volatile(
-            "mrs r2, cpsr\n"
-            "bic r3, r2, #0x1F\n"
-            "orr r3, r3, #0x13\n"
-            "msr cpsr_c, r3\n"      
-            "mov %0, sp\n"          
-            "mov %1, lr\n"          // <--- RECUPERAMOS EL LR QUE SE PERDIO
-            "msr cpsr_c, r2\n"     
-            : "=r"(svc_sp), "=r"(svc_lr) : : "r2", "r3"
-        );
-        cur->sp = svc_sp;
-        cur->lr = svc_lr;
-
-        // Guardar SPSR
-        asm volatile("mrs %0, spsr" : "=r"(cur->spsr));
-        
-        PRINT("[DBG] Saving P%d: pc=0x%x sp=0x%x\n", cur->pid, cur->pc, cur->sp);
+        // El ensamblador nos paso la caja (frame) ordenada asi:
+        cur->sp   = frame[0];  // SVC_SP
+        cur->lr   = frame[1];  // SVC_LR
+        cur->spsr = frame[2];  // SPSR
+        for (int i = 0; i < 13; i++) cur->r[i] = frame[3 + i]; // R0-R12
+        cur->pc   = frame[16]; // PC
     }
 
     // --- 2. ELEGIR siguiente proceso ---
     schedule();
     pcb_t *next = &process_table[current_process];
 
-    // --- IMPRIMIMOS EL LOG AHORA (Antes de tocar la memoria sagrada) ---
-    PRINT("[DBG] Restoring P%d: pc=0x%x sp=0x%x\n", next->pid, next->pc, next->sp);
-
     // --- 3. RESTAURAR contexto del siguiente proceso ---
-    // (A partir de esta linea, C no deberia llamar a ninguna otra funcion compleja)
-
-    // Escribir SVC_SP y SVC_LR del siguiente proceso
-    unsigned int new_sp = next->sp;
-    unsigned int new_lr = next->lr; // <--- RESTAURAMOS EL LR
-    asm volatile(
-        "mrs r2, cpsr\n"
-        "bic r3, r2, #0x1F\n"
-        "orr r3, r3, #0x13\n"
-        "msr cpsr_c, r3\n"      
-        "mov sp, %0\n"         
-        "mov lr, %1\n"         
-        "msr cpsr_c, r2\n"      
-        : : "r"(new_sp), "r"(new_lr) : "r2", "r3"
-    );
-
-    // Restaurar SPSR
-    asm volatile("msr spsr_cxsf, %0" : : "r"(next->spsr));
-
-    // Poner r0-r12 y PC del siguiente proceso en el frame
-    // ¡HACEMOS ESTO HASTA EL FINAL PARA QUE C NO LO APLASTE!
-    for (int i = 0; i < 13; i++) frame[i] = next->r[i];
-    frame[13] = next->pc;
+    // (Metemos las cosas del nuevo proceso en la caja para el ensamblador)
+    frame[0] = next->sp;
+    frame[1] = next->lr;
+    frame[2] = next->spsr;
+    for (int i = 0; i < 13; i++) frame[3 + i] = next->r[i];
+    frame[16] = next->pc;
 
     os_started = 1;
 }
