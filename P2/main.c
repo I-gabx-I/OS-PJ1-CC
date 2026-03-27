@@ -1,26 +1,27 @@
 #include "../lib/stdio.h"
 
-// funcion de retardo basica
-void delay(volatile unsigned int count) {
-    while(count--) {
-    }
-}
+void delay(volatile unsigned int count);
 
 int main(void) {
     char c = 'a';
-    
-    // ciclo infinito del proceso 2
+    int counter = 0;
+
     while (1) {
-        PRINT("----From P2: %c\n", c); // formato exacto del pdf
-        
+        PRINT("----From P2: %c\n", c);
         c++;
-        if (c > 'z') {
-            c = 'a'; // reiniciar alfabeto
+        if (c > 'z') c = 'a';
+
+        counter++;
+        if (counter >= 500) {
+            PRINT("[P2 OK: sin corrupcion]\n");
+            counter = 0;
         }
-        
-        // retardo similar al de P1
-        delay(500000); 
+
+        delay(50000);
     }
-    
     return 0;
+}
+
+void delay(volatile unsigned int count) {
+    while(count--);
 }

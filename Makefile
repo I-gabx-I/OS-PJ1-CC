@@ -54,13 +54,13 @@ $(BUILD_DIR)/os.bin: $(BUILD_DIR)/os.elf
 	$(OBJCOPY) -O binary $< $@
 
 $(BUILD_DIR)/p1.elf: $(P1_OBJS)
-	$(LD) $(LDFLAGS) -T P1/p1.ld $^ -o $@
+	$(LD) $(LDFLAGS) -T $(P1_LD) $^ -o $@
 
 $(BUILD_DIR)/p1.bin: $(BUILD_DIR)/p1.elf
 	$(OBJCOPY) -O binary $< $@
 
 $(BUILD_DIR)/p2.elf: $(P2_OBJS)
-	$(LD) $(LDFLAGS) -T P2/p2.ld $^ -o $@
+	$(LD) $(LDFLAGS) -T $(P2_LD) $^ -o $@
 
 $(BUILD_DIR)/p2.bin: $(BUILD_DIR)/p2.elf
 	$(OBJCOPY) -O binary $< $@

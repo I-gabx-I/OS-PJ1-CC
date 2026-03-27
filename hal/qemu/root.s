@@ -51,8 +51,17 @@ hang:
 @ frame en stack: [sp+0]=r0 ... [sp+48]=r12 [sp+52]=lr(PC corregido)
 @ -------------------------------------------------------
 irq_handler:
-    sub  lr, lr, #4                 @ Corregir LR: apunta a instruccion interrumpida
-    stmfd sp!, {r0-r12, lr}         @ Guardar r0-r12 y PC en stack IRQ
-    mov  r0, sp                     @ r0 = puntero al frame (1er arg a C)
-    bl   timer_irq_handler          @ C hace el context switch sobre el frame
-    ldmfd sp!, {r0-r12, pc}^        @ Restaurar desde frame, ^ = CPSR desde SPSR
+    @ 1. Corregir LR y guardar contexto inicial en el stack
+    sub lr, lr, #4
+    stmfd sp!, {r0-r12, lr}   @ [sp] = r0...r12, PC
+
+    @ 2. Preparar argumentos para timer_irq_handler (el puntero al frame)
+    @ Pasamos el Stack Pointer (que apunta al frame guardado) a r0
+    mov r0, sp
+
+    @ 3. Llamar a la funcion en C (Esto hara el PRINT y el schedule)
+    bl timer_irq_handler
+
+    @ 4. La funcion en C modifico nuestro stack con los datos del nuevo proceso.
+    @ Restaurar todos los registros (r0-r12 y PC) y el CPSR de golpe.
+    ldmfd sp!, {r0-r12, pc}^
