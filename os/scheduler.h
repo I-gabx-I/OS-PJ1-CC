@@ -9,5 +9,6 @@ extern int current_process;
 
 // Funciones del scheduler
 void init_scheduler(void);
+void schedule(void); // Para que el timer_irq_handler le diga al scheduler que cambie de proceso
 
 #endif

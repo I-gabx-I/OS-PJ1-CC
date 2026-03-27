@@ -3,7 +3,7 @@ ENTRY(main)
 SECTIONS
 {
     /* El Proceso 1 arranca en su propia dirección base */
-    . = 0x82100000; 
+    . = 0x00100000; 
 
     .text : {
         *(.text)

@@ -11,10 +11,14 @@ ifeq ($(TARGET), QEMU)
     HW_DIR = hal/qemu
     CFLAGS = -mcpu=arm926ej-s -marm -Wall -O0 -ffreestanding -nostdlib -I./lib -I./hal -I./os -D QEMU_MODE
 	OS_LD = hal/qemu/qemu.ld  
+	P1_LD = hal/qemu/qemu_p1.ld
+    P2_LD = hal/qemu/qemu_p2.ld
 else
     HW_DIR = hal/beagle
     CFLAGS = -mcpu=cortex-a8 -marm -Wall -O0 -ffreestanding -nostdlib -I./lib -I./hal -I./os
 	OS_LD = hal/beagle/beagle.ld
+	P1_LD = P1/p1.ld
+    P2_LD = P2/p2.ld
 endif
 
 LDFLAGS = -nostdlib
@@ -71,4 +75,7 @@ clean:
 
 # Comando rapido para correr en QEMU
 run-qemu:
-	qemu-system-arm -M versatilepb -nographic -kernel build/os.elf
+	qemu-system-arm -M versatilepb -nographic \
+	  -kernel build/os.elf \
+	  -device loader,file=build/p1.bin,addr=0x00100000 \
+	  -device loader,file=build/p2.bin,addr=0x00200000
