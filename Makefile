@@ -1,64 +1,74 @@
-# --- Herramientas de Compilacion (Toolchain) ---
+# beagle por defecto, pero se puede cambiar a QEMU con "make TARGET=QEMU"
+TARGET ?= BEAGLE
+
+# Herramientas para compilar
 CC = arm-none-eabi-gcc
 LD = arm-none-eabi-ld
 OBJCOPY = arm-none-eabi-objcopy
 
-# --- Banderas de Compilacion ---
-CFLAGS = -mcpu=cortex-a8 -marm -Wall -O0 -ffreestanding -nostdlib -I./lib -I./hal -I./os
-LDFLAGS = -nostdlib
+# CONFIG del condicional (BSP)
+ifeq ($(TARGET), QEMU)
+    HW_DIR = hal/qemu
+    CFLAGS = -mcpu=arm926ej-s -marm -Wall -O0 -ffreestanding -nostdlib -I./lib -I./hal -I./os -D QEMU_MODE
+	OS_LD = hal/qemu/qemu.ld  
+else
+    HW_DIR = hal/beagle
+    CFLAGS = -mcpu=cortex-a8 -marm -Wall -O0 -ffreestanding -nostdlib -I./lib -I./hal -I./os
+	OS_LD = hal/beagle/beagle.ld
+endif
 
-# --- Directorio de Salida ---
+LDFLAGS = -nostdlib
 BUILD_DIR = build
 
-# --- Archivos Objeto Compartidos (Libreria y Hardware) ---
-# (Si tienes lib/string.c agregalo aqui como $(BUILD_DIR)/lib/string.o)
-SHARED_OBJS = $(BUILD_DIR)/lib/stdio.o $(BUILD_DIR)/hal/uart.o 
+# Archivos Objeto
+# Nota como usamos $(HW_DIR) para jalar los archivos correctos
+SHARED_OBJS = $(BUILD_DIR)/lib/stdio.o $(BUILD_DIR)/$(HW_DIR)/uart.o 
 
-# --- Archivos Objeto del OS ---
-OS_OBJS = $(BUILD_DIR)/os/root.o \
+OS_OBJS = $(BUILD_DIR)/$(HW_DIR)/root.o \
           $(BUILD_DIR)/os/os.o \
           $(BUILD_DIR)/os/scheduler.o \
-          $(BUILD_DIR)/hal/watchdog.o \
-          $(BUILD_DIR)/hal/timer.o \
+          $(BUILD_DIR)/$(HW_DIR)/watchdog.o \
+          $(BUILD_DIR)/$(HW_DIR)/timer.o \
           $(SHARED_OBJS)
 
-# --- Archivos Objeto de los Procesos de Usuario ---
 P1_OBJS = $(BUILD_DIR)/P1/main.o $(SHARED_OBJS)
 P2_OBJS = $(BUILD_DIR)/P2/main.o $(SHARED_OBJS)
 
-# --- Regla Principal (Lo que se hace al escribir 'make') ---
+# regla principal
 all: $(BUILD_DIR)/os.bin $(BUILD_DIR)/p1.bin $(BUILD_DIR)/p2.bin
 
-# --- Reglas Magicas para compilar y crear subcarpetas en build/ ---
+# Reglas de Compilacion (Generan las carpetas automaticas) ---
 $(BUILD_DIR)/%.o: %.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c $< -o $@
 
-$(BUILD_DIR)/%.o: %.s
-	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -c $< -o $@
-
-# --- Reglas de Construccion del OS ---
+# reglas para el linkeo
 $(BUILD_DIR)/os.elf: $(OS_OBJS)
-	$(LD) $(LDFLAGS) -T os/os.ld $^ -o $@
+	$(LD) $(LDFLAGS) -T $(OS_LD) $^ -o $@
 
 $(BUILD_DIR)/os.bin: $(BUILD_DIR)/os.elf
 	$(OBJCOPY) -O binary $< $@
 
-# --- Reglas de Construccion de P1 ---
 $(BUILD_DIR)/p1.elf: $(P1_OBJS)
 	$(LD) $(LDFLAGS) -T P1/p1.ld $^ -o $@
 
 $(BUILD_DIR)/p1.bin: $(BUILD_DIR)/p1.elf
 	$(OBJCOPY) -O binary $< $@
 
-# --- Reglas de Construccion de P2 ---
 $(BUILD_DIR)/p2.elf: $(P2_OBJS)
 	$(LD) $(LDFLAGS) -T P2/p2.ld $^ -o $@
 
 $(BUILD_DIR)/p2.bin: $(BUILD_DIR)/p2.elf
 	$(OBJCOPY) -O binary $< $@
 
-# --- Regla de Limpieza ---
+$(BUILD_DIR)/%.o: %.s
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -x assembler-with-cpp -c $< -o $@
+
+# --- Comandos extra ---
 clean:
 	rm -rf $(BUILD_DIR)
+
+# Comando rapido para correr en QEMU
+run-qemu:
+	qemu-system-arm -M versatilepb -nographic -kernel build/os.elf

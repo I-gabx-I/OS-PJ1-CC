@@ -1,5 +1,5 @@
-// declaracion externa de la funcion de tu libreria
-extern void PRINT(const char *fmt, ...);
+#include "../lib/stdio.h"
+//extern void PRINT(const char *fmt, ...);
 
 // funcion de retardo basica gastando ciclos de reloj
 void delay(volatile unsigned int count) {
