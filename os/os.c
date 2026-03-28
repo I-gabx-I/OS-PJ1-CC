@@ -7,7 +7,8 @@
 #include "../hal/uart.h"
 
 void timer_irq_handler(unsigned int *frame) {
-    clear_timer_interrupt(); // Apagamos el hardware para que no siga sonando
+    clear_timer_interrupt();
+    PRINT("Interrupción del Timer recibida\n"); // Apagamos el hardware para que no siga sonando
 
     static int os_started = 0;
 

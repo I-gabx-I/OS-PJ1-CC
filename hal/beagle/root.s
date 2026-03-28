@@ -1,101 +1,101 @@
 .global start
- 
+
+@ Tabla de Vectores de Excepcion ARM
 start:
-    b reset_handler      @ 0x00: Reset
-    b hang               @ 0x04: Undefined
-    b hang               @ 0x08: SWI
-    b hang               @ 0x0C: Prefetch abort
-    b hang               @ 0x10: Data abort
-    b hang               @ 0x14: Reserved
-    b irq_handler        @ 0x18: IRQ  <-- CPU salta aqui en interrupciones
-    b hang               @ 0x1C: FIQ
- 
+    b reset_handler      @ 0x00: Reset del sistema
+    b hang               @ 0x04: Instruccion Indefinida
+    b hang               @ 0x08: Interrupcion por Software (SWI/SVC)
+    b hang               @ 0x0C: Aborto de Prefetch
+    b hang               @ 0x10: Aborto de Datos
+    b hang               @ 0x14: Reservado
+    b irq_handler        @ 0x18: Peticion de Interrupcion (IRQ) - Timer
+    b hang               @ 0x1C: Interrupcion Rapida (FIQ)
+
 reset_handler:
-    @ *** FIX #1: Apuntar el VBAR a nuestra tabla de vectores ***
-    @ Sin esto, cuando el timer dispara, el CPU salta a 0x00000018 (U-Boot)
-    @ en vez de a 0x82000018 (nuestro codigo). El timer "dispara" pero nadie lo escucha.
+    @ Reubicacion de la Tabla de Vectores (VBAR)
+    @ Define la direccion base de la tabla de vectores apuntando a 'start'
     ldr r0, =start
-    mcr p15, 0, r0, c12, c0, 0   @ Escribir VBAR
- 
-    @ Setup stack modo IRQ
+    mcr p15, 0, r0, c12, c0, 0
+
+    @ Inicializacion del Stack Pointer para el modo IRQ
     mrs r0, cpsr
     bic r0, r0, #0x1F
-    orr r0, r0, #0xD2       @ IRQ mode, I=1, F=1
+    orr r0, r0, #0xD2       @ Cambio a modo IRQ (0xD2)
     msr cpsr_c, r0
-    ldr sp, =_irq_stack_top
- 
-    @ Setup stack modo SVC (modo OS)
+    ldr sp, =_irq_stack_top @ escribo basura en otro lado
+
+    @ Inicializacion del Stack Pointer para el modo SVC (Supervisor)
     mrs r0, cpsr
     bic r0, r0, #0x1F
-    orr r0, r0, #0xD3       @ SVC mode, I=1, F=1
+    orr r0, r0, #0xD3       @ Cambio a modo SVC (0xD3)
     msr cpsr_c, r0
-    ldr sp, =_os_stack_top
- 
-    @ Limpiar BSS
+    ldr sp, =_os_stack_top  @guardo basura en otro lado
+
+    @ Limpieza de la seccion .bss (Variables globales a cero)
     ldr r0, =bss_start
     ldr r1, =bss_end
     mov r2, #0
 clear_bss:
     cmp r0, r1
-    bge bss_cleared
+    bge bss_cleared  @bucle infinito
     str r2, [r0], #4
     b   clear_bss
 bss_cleared:
- 
-    @ Habilitar IRQs (limpiar bit I)
+
+    @ Habilitacion de Interrupciones a nivel de CPU
     mrs r0, cpsr
-    bic r0, r0, #0x80
+    bic r0, r0, #0x80       @ Limpieza del bit 'I' , no context switch
     msr cpsr_c, r0
- 
+
+    @ Barreras de sincronizacion de memoria (ARMv7)
+    dsb @asegura limpieza fin e inicio luego main 
+    isb
+
+    @ Salto a la logica principal en C
     bl main
- 
+
 hang:
     b hang
- 
-@ -------------------------------------------------------
-@ IRQ Handler (El verdadero Context Switch)
-@ frame en stack (desde SP hacia arriba):
-@   [0] = SVC_SP  [1] = SVC_LR  [2] = SPSR
-@   [3..15] = R0-R12             [16] = PC (LR_irq corregido)
-@ -------------------------------------------------------
-irq_handler:                         @ *** FIX #2: etiqueta duplicada eliminada ***
- 
-    @ 1. Corregir el PC interrumpido (instruccion exacta)
+
+@ Manejador de Interrupciones (Context Switch)
+
+irq_handler:
+    @ Ajuste del Program Counter para retornar a la instruccion interrumpida
     sub lr, lr, #4
- 
-    @ 2. Guardar R0-R12 y el PC en nuestro stack de IRQ
+
+    @ Guardado del contexto base (R0-R12 y PC) en el stack de IRQ
     stmfd sp!, {r0-r12, lr}
- 
-    @ 3. Guardar el SPSR (estado del proceso interrumpido)
+
+    @ Guardado del Status Register (CPSR del proceso interrumpido)
     mrs r0, spsr
     stmfd sp!, {r0}
- 
-    @ 4. ZONA CRITICA: Cambiar a SVC desactivando IRQs para el context switch
+
+    @ Cambio a modo SVC con interrupciones deshabilitadas (Prevencion de reentrancia)
     mrs r1, cpsr
     bic r0, r1, #0x1F
-    orr r0, r0, #0x93      @ 0x13 (SVC) | 0x80 (I=1, sin re-entrada)
+    orr r0, r0, #0x93       @crash fatal del user
     msr cpsr_c, r0
- 
-    @ 5. Tomar el SP y LR del proceso actual (que viven en SVC)
+
+    @ Rescate de los punteros de pila y retorno del proceso de usuario
     mov r2, sp
     mov r3, lr
- 
-    @ 6. Volver al modo IRQ
+
+    @ Retorno al modo IRQ
     msr cpsr_c, r1
- 
-    @ 7. Completar la "caja" (frame de 17 posiciones) con SP y LR del SVC
+
+    @ Integracion de SP y LR al frame de interrupcion
     stmfd sp!, {r2, r3}
- 
-    @ 8. Llamar al handler en C pasandole el stack como frame
+
+    @ Llamada al planificador en C (pasando el Stack Pointer como argumento)
     mov r0, sp
     bl timer_irq_handler
- 
-    @ --- REGRESO DE C: la caja trae los datos del nuevo proceso ---
- 
-    @ 9. Sacar el SP y LR del nuevo proceso
+    
+    @ --- Retorno del Planificador ---
+
+    @ Extraccion del SP y LR del nuevo proceso a ejecutar
     ldmfd sp!, {r2, r3}
- 
-    @ 10. ZONA CRITICA: Inyectar SP y LR en el modo SVC del nuevo proceso
+
+    @ Inyeccion de los punteros en los registros bancados del modo SVC
     mrs r1, cpsr
     bic r0, r1, #0x1F
     orr r0, r0, #0x93
@@ -103,16 +103,15 @@ irq_handler:                         @ *** FIX #2: etiqueta duplicada eliminada 
     mov sp, r2
     mov lr, r3
     msr cpsr_c, r1
- 
-    @ 11. *** FIX #3: Decirle al INTC que terminamos (End-Of-Interrupt) ***
-    @ Sin esto el INTC no vuelve a disparar IRQs al CPU despues de la primera.
-    ldr r0, =0x48200048    @ INTC_CONTROL
+
+    @ Confirmacion de fin de interrupcion (EOI) al controlador INTC
+    ldr r0, =0x48200048    
     mov r2, #1
     str r2, [r0]
- 
-    @ 12. Restaurar el SPSR del nuevo proceso
+
+    @ Restauracion del SPSR del nuevo proceso
     ldmfd sp!, {r0}
     msr spsr_cxsf, r0
- 
-    @ 13. Restaurar R0-R12 y saltar al nuevo PC (^ restaura el modo automaticamente)
+
+    @ Restauracion de registros generales y salto al nuevo Program Counter
     ldmfd sp!, {r0-r12, pc}^
