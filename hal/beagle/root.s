@@ -5,10 +5,10 @@
 @ ======================================================================
 start:
     b reset_handler      @ 0x00: Reset
-    b hang               @ 0x04: Undefined Instruction
+    b undef_entry        @ 0x04: Undefined Instruction      <-- fault path
     b svc_entry          @ 0x08: Software Interrupt (SVC)  <-- syscall path
-    b hang               @ 0x0C: Prefetch Abort            <-- wired in STEP 3
-    b hang               @ 0x10: Data Abort                <-- wired in STEP 3
+    b prefetch_abort_entry @ 0x0C: Prefetch Abort          <-- fault path
+    b data_abort_entry   @ 0x10: Data Abort                <-- fault path
     b hang               @ 0x14: Reserved
     b irq_handler        @ 0x18: IRQ (Timer)
     b hang               @ 0x1C: FIQ
@@ -34,6 +34,20 @@ reset_handler:
     orr r0, r0, #0xDF       @ System mode, I=1 F=1
     msr cpsr_c, r0
     ldr sp, =_sys_stack_top
+ 
+    @ --- Abort-mode stack (PHASE 2: prefetch/data abort handlers) ---
+    mrs r0, cpsr
+    bic r0, r0, #0x1F
+    orr r0, r0, #0xD7       @ Abort mode (0x17), I=1 F=1
+    msr cpsr_c, r0
+    ldr sp, =_abt_stack_top
+ 
+    @ --- Undefined-mode stack (PHASE 2: undefined-instruction handler) ---
+    mrs r0, cpsr
+    bic r0, r0, #0x1F
+    orr r0, r0, #0xDB       @ Undefined mode (0x1B), I=1 F=1
+    msr cpsr_c, r0
+    ldr sp, =_und_stack_top
  
     @ --- SVC-mode stack (OS runs here during boot) ---
     mrs r0, cpsr
@@ -190,6 +204,94 @@ svc_entry:
     msr cpsr_c, r1
  
     @ Restore SPSR of the task we return to, then exception-return to USR
+    ldmfd sp!, {r0}
+    msr spsr_cxsf, r0
+    ldmfd sp!, {r0-r12, pc}^
+ 
+@ ======================================================================
+@  Fault Handlers  (Section 5: containment & isolation)
+@
+@  All three build the SAME 17-word frame as irq/svc and call the C
+@  routine fault_handler(&frame, kind). On return the frame holds the
+@  NEXT healthy task's context, and we exception-return into USR.
+@
+@  LR offsets (ARMv7) — these MUST be right or we log the wrong PC:
+@    Undefined instruction : lr = fault+4  -> sub #4
+@    Prefetch abort        : lr = fault+4  -> sub #4
+@    Data abort            : lr = fault+8  -> sub #8
+@
+@  kind values match the FAULT_* codes in pcb.h:
+@    FAULT_UNDEF=6, FAULT_PREFETCH=1, FAULT_DATA=2
+@
+@  Each runs in its own privileged mode (Undef 0x1B / Abort 0x17) on a
+@  dedicated stack set up in reset_handler. The USR SP/LR rescue uses
+@  System mode (0x9F), exactly like irq/svc.
+@ ======================================================================
+ 
+undef_entry:
+    sub lr, lr, #4                 @ faulting (undefined) instruction
+    stmfd sp!, {r0-r12, lr}
+    mrs r0, spsr
+    stmfd sp!, {r0}
+    mrs r1, cpsr
+    bic r0, r1, #0x1F
+    orr r0, r0, #0x9F
+    msr cpsr_c, r0
+    mov r2, sp
+    mov r3, lr
+    msr cpsr_c, r1
+    stmfd sp!, {r2, r3}
+    mov r0, sp
+    mov r1, #6                     @ FAULT_UNDEF
+    bl fault_handler
+    b   fault_return
+ 
+prefetch_abort_entry:
+    sub lr, lr, #4                 @ faulting (prefetch) instruction
+    stmfd sp!, {r0-r12, lr}
+    mrs r0, spsr
+    stmfd sp!, {r0}
+    mrs r1, cpsr
+    bic r0, r1, #0x1F
+    orr r0, r0, #0x9F
+    msr cpsr_c, r0
+    mov r2, sp
+    mov r3, lr
+    msr cpsr_c, r1
+    stmfd sp!, {r2, r3}
+    mov r0, sp
+    mov r1, #1                     @ FAULT_PREFETCH
+    bl fault_handler
+    b   fault_return
+ 
+data_abort_entry:
+    sub lr, lr, #8                 @ faulting (data) instruction (offset -8)
+    stmfd sp!, {r0-r12, lr}
+    mrs r0, spsr
+    stmfd sp!, {r0}
+    mrs r1, cpsr
+    bic r0, r1, #0x1F
+    orr r0, r0, #0x9F
+    msr cpsr_c, r0
+    mov r2, sp
+    mov r3, lr
+    msr cpsr_c, r1
+    stmfd sp!, {r2, r3}
+    mov r0, sp
+    mov r1, #2                     @ FAULT_DATA
+    bl fault_handler
+    @ falls through to fault_return
+ 
+@ Shared exception-return: frame already holds the next task's context.
+fault_return:
+    ldmfd sp!, {r2, r3}
+    mrs r1, cpsr
+    bic r0, r1, #0x1F
+    orr r0, r0, #0x9F
+    msr cpsr_c, r0
+    mov sp, r2
+    mov lr, r3
+    msr cpsr_c, r1
     ldmfd sp!, {r0}
     msr spsr_cxsf, r0
     ldmfd sp!, {r0-r12, pc}^
