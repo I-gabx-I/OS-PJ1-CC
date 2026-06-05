@@ -6,7 +6,7 @@
 start:
     b reset_handler      @ 0x00: Reset
     b hang               @ 0x04: Undefined Instruction
-    b hang               @ 0x08: Software Interrupt (SVC)  <-- wired in STEP 2
+    b svc_entry          @ 0x08: Software Interrupt (SVC)  <-- syscall path
     b hang               @ 0x0C: Prefetch Abort            <-- wired in STEP 3
     b hang               @ 0x10: Data Abort                <-- wired in STEP 3
     b hang               @ 0x14: Reserved
@@ -137,4 +137,59 @@ irq_handler:
  
     @ 11. Restore r0-r12 and return; '^' copies SPSR -> CPSR,
     @     dropping the CPU into the task's mode (USR for P1/P2).
+    ldmfd sp!, {r0-r12, pc}^
+ 
+@ ======================================================================
+@  SVC Handler  (Syscall path, USR -> kernel -> USR)
+@
+@  Twin of irq_handler, building the IDENTICAL 17-word frame so the C
+@  dispatcher and scheduler reuse the same save/restore logic.
+@
+@  DIFFERENCES vs irq_handler:
+@    * NO 'sub lr, lr, #4'  -> the SVC return offset is 0; lr_svc
+@      already points to the instruction AFTER 'svc' (the resume point).
+@    * NO INTC End-Of-Interrupt -> that is timer-specific.
+@    * Runs on the SVC-mode stack (we are in SVC after the trap), and
+@      IRQs are masked by hardware on SVC entry (no reentrancy).
+@
+@  The temporary SP/LR rescue still uses SYSTEM mode (0x9F), because the
+@  task lives in USR and USR/System share the banked SP/LR.
+@ ======================================================================
+svc_entry:
+    @ Save r0-r12 and lr_svc (resume PC). NOTE: no -4 adjustment.
+    stmfd sp!, {r0-r12, lr}
+ 
+    @ Save SPSR (caller USR CPSR)
+    mrs r0, spsr
+    stmfd sp!, {r0}
+ 
+    @ System mode (shares USR SP/LR), IRQs off -> read task SP/LR
+    mrs r1, cpsr
+    bic r0, r1, #0x1F
+    orr r0, r0, #0x9F
+    msr cpsr_c, r0
+    mov r2, sp
+    mov r3, lr
+    msr cpsr_c, r1
+ 
+    @ Push SP/LR -> 17-word frame complete
+    stmfd sp!, {r2, r3}
+ 
+    @ Call C dispatcher (r0 = &frame)
+    mov r0, sp
+    bl svc_handler
+ 
+    @ --- return: pop next task SP/LR, inject via System mode ---
+    ldmfd sp!, {r2, r3}
+    mrs r1, cpsr
+    bic r0, r1, #0x1F
+    orr r0, r0, #0x9F
+    msr cpsr_c, r0
+    mov sp, r2
+    mov lr, r3
+    msr cpsr_c, r1
+ 
+    @ Restore SPSR of the task we return to, then exception-return to USR
+    ldmfd sp!, {r0}
+    msr spsr_cxsf, r0
     ldmfd sp!, {r0-r12, pc}^
