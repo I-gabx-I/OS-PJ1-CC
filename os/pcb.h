@@ -23,6 +23,7 @@
 #define FAULT_ALIGN         3   /* alignment error                  */
 #define FAULT_PRIVILEGE     4   /* privilege violation              */
 #define FAULT_EXIT          5   /* clean SYS_EXIT                   */
+#define FAULT_UNDEF         6   /* undefined instruction from USR   */
  
 /* ---------------------------------------------------------------
  * Process Control Block
