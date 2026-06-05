@@ -24,8 +24,12 @@ SECTIONS
     bss_end = .;
 
     /* El stack del OS empieza en esta dirección (crece hacia abajo) */
-    _os_stack_top = 0x82010000 + 0x2000; /* 0x2000 son los 8KB */
+    _os_stack_top = 0x82010000 + 0x2000; /* 0x82012000, 8KB */
 
     /* Stack del modo IRQ - separado porque ARM tiene SP/LR bancados por modo */
     _irq_stack_top = 0x82010000;
+
+    /* PHASE 2: System-mode / idle stack (USR-banked SP).
+       Placed above the OS SVC stack, well below P1 base (0x82100000). */
+    _sys_stack_top = 0x82012000 + 0x2000; /* 0x82014000, 8KB */
 }
