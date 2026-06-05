@@ -1,11 +1,11 @@
 # beagle por defecto, pero se puede cambiar a QEMU con "make TARGET=QEMU"
 TARGET ?= BEAGLE
-
+ 
 # Herramientas para compilar
 CC = arm-none-eabi-gcc
 LD = arm-none-eabi-ld
 OBJCOPY = arm-none-eabi-objcopy
-
+ 
 # CONFIG del condicional (BSP)
 ifeq ($(TARGET), QEMU)
     HW_DIR = hal/qemu
@@ -20,59 +20,63 @@ else
 	P1_LD = P1/p1.ld
     P2_LD = P2/p2.ld
 endif
-
+ 
 LDFLAGS = -nostdlib
 BUILD_DIR = build
-
+ 
 # Archivos Objeto
 # Nota como usamos $(HW_DIR) para jalar los archivos correctos
 SHARED_OBJS = $(BUILD_DIR)/lib/stdio.o $(BUILD_DIR)/$(HW_DIR)/uart.o 
-
+ 
 OS_OBJS = $(BUILD_DIR)/$(HW_DIR)/root.o \
           $(BUILD_DIR)/os/os.o \
           $(BUILD_DIR)/os/scheduler.o \
+          $(BUILD_DIR)/os/syscall.o \
           $(BUILD_DIR)/$(HW_DIR)/watchdog.o \
           $(BUILD_DIR)/$(HW_DIR)/timer.o \
           $(SHARED_OBJS)
-
-P1_OBJS = $(BUILD_DIR)/P1/main.o $(SHARED_OBJS)
-P2_OBJS = $(BUILD_DIR)/P2/main.o $(SHARED_OBJS)
-
+ 
+# Phase 2: user binaries are self-contained — only their own main.o.
+# User code reaches the kernel exclusively via svc (user_syscalls.h),
+# so it links NO stdio/uart objects.
+P1_OBJS = $(BUILD_DIR)/P1/main.o
+P2_OBJS = $(BUILD_DIR)/P2/main.o
+ 
 # regla principal
 all: $(BUILD_DIR)/os.bin $(BUILD_DIR)/p1.bin $(BUILD_DIR)/p2.bin
-
+ 
 # Reglas de Compilacion (Generan las carpetas automaticas) ---
 $(BUILD_DIR)/%.o: %.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c $< -o $@
-
+ 
 # reglas para el linkeo
 $(BUILD_DIR)/os.elf: $(OS_OBJS)
 	$(LD) $(LDFLAGS) -T $(OS_LD) $^ -o $@
-
+ 
 $(BUILD_DIR)/os.bin: $(BUILD_DIR)/os.elf
 	$(OBJCOPY) -O binary $< $@
-
+ 
 $(BUILD_DIR)/p1.elf: $(P1_OBJS)
 	$(LD) $(LDFLAGS) -T $(P1_LD) $^ -o $@
-
+ 
 $(BUILD_DIR)/p1.bin: $(BUILD_DIR)/p1.elf
 	$(OBJCOPY) -O binary $< $@
-
+ 
 $(BUILD_DIR)/p2.elf: $(P2_OBJS)
 	$(LD) $(LDFLAGS) -T $(P2_LD) $^ -o $@
-
+ 
 $(BUILD_DIR)/p2.bin: $(BUILD_DIR)/p2.elf
 	$(OBJCOPY) -O binary $< $@
-
+ 
 $(BUILD_DIR)/%.o: %.s
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -x assembler-with-cpp -c $< -o $@
-
+ 
 # --- Comandos extra ---
 clean:
 	rm -rf $(BUILD_DIR)
-
+ 
 # Comando rapido para correr en QEMU
 run-qemu:
 	qemu-system-arm -M versatilepb -nographic \
