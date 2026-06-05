@@ -6,8 +6,11 @@ SECTIONS
     . = 0x82100000; 
 
     .text : {
+        *(.text.boot)
         *(.text)
     }
+
+    .rodata : { *(.rodata*) }
 
     .data : {
         *(.data)
